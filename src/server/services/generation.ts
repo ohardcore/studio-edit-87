@@ -545,8 +545,11 @@ async function processJob(jobId: number) {
       totalCount: job.totalCount ?? 1,
     })
 
-    // Determine backend type
-    const backendType = getBackendType()
+    // Parse job parameters early to read stored backend type
+    const resolvedParameters = JSON.parse(job.resolvedParameters)
+
+    // Determine backend type: prefer per-job stored value, fallback to global setting
+    const backendType = (resolvedParameters._backend as 'nai' | 'comfyui') ?? getBackendType()
 
     // Get API key (NAI only)
     let apiKey: string | undefined
@@ -610,7 +613,6 @@ async function processJob(jobId: number) {
       .run()
 
     const resolvedPrompts = JSON.parse(job.resolvedPrompts)
-    const resolvedParameters = JSON.parse(job.resolvedParameters)
     const totalCount = job.totalCount ?? 1
 
     // Prepare reference data (NAI only - once per job, reused for all images)
@@ -739,6 +741,7 @@ async function processJob(jobId: number) {
           thumbnailPath,
           seed,
           metadata: JSON.stringify({
+            backend: backendType,
             prompts: resolvedPrompts,
             parameters: resolvedParameters,
             ...(referenceMode !== 'none' &&

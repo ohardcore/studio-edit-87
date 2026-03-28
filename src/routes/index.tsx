@@ -106,13 +106,19 @@ function PendingComponent() {
 
 export const Route = createFileRoute('/')({
   loader: async () => {
-    const [projectList, apiKey] = await Promise.all([
+    const [projectList, apiKey, backend, comfyuiUrl] = await Promise.all([
       listProjects(),
       getSetting({ data: 'nai_api_key' }),
+      getSetting({ data: 'generation_backend' }),
+      getSetting({ data: 'comfyui_server_url' }),
     ])
+    const isConfigured =
+      backend === 'comfyui'
+        ? !!comfyuiUrl && comfyuiUrl.length > 0
+        : !!apiKey && apiKey.length > 0
     return {
       projects: projectList,
-      hasApiKey: !!apiKey && apiKey.length > 0,
+      hasApiKey: isConfigured,
     }
   },
   component: ProjectSelectorPage,

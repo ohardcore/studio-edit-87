@@ -6,6 +6,7 @@ import {
   generationJobs,
   projectScenes,
   projects,
+  settings,
 } from '../db/schema'
 import { synthesizePrompts } from '../services/prompt'
 import {
@@ -38,6 +39,10 @@ export const createGenerationJob = createServerFn({ method: 'POST' })
       .where(eq(projects.id, data.projectId))
       .get()
     const parameters = JSON.parse(project?.parameters || '{}')
+
+    // Store current backend type in parameters so it's preserved with the job
+    const backendRow = db.select().from(settings).where(eq(settings.key, 'generation_backend')).get()
+    parameters._backend = backendRow?.value ?? 'nai'
 
     // Build label from scene names
     const sceneNames: Array<string> = []

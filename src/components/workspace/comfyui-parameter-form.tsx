@@ -100,6 +100,18 @@ export function ComfyUIParameterForm({
     staleTime: 60_000,
   })
 
+  // Auto-select default workflow if none selected
+  useEffect(() => {
+    if (workflows && workflows.length > 0 && !localParams.workflowId) {
+      const defaultWf = workflows.find((wf) => wf.isDefault === 1)
+      if (defaultWf) {
+        set('workflowId', defaultWf.id)
+      } else {
+        set('workflowId', workflows[0].id)
+      }
+    }
+  }, [workflows, localParams.workflowId, set])
+
   const { data: modelsResult } = useQuery({
     queryKey: ['comfyui-models', serverUrl],
     queryFn: () => fetchComfyUIModels({ data: serverUrl! }),

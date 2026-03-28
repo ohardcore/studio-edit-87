@@ -6,7 +6,8 @@ export function useBackendSetting(): BackendType {
   const { data } = useQuery({
     queryKey: ['setting', 'generation_backend'],
     queryFn: () => getSetting({ data: 'generation_backend' }),
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
   })
   return (data as BackendType) ?? 'nai'
 }

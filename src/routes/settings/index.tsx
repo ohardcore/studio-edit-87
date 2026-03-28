@@ -60,11 +60,12 @@ function PendingComponent() {
 
 export const Route = createFileRoute('/settings/')({
   loader: async () => {
-    const [apiKey, delay, backend, comfyuiUrl, workflows] = await Promise.all([
+    const [apiKey, delay, backend, comfyuiUrl, defaultWorkflowId, workflows] = await Promise.all([
       getSetting({ data: 'nai_api_key' }),
       getSetting({ data: 'generation_delay' }),
       getSetting({ data: 'generation_backend' }),
       getSetting({ data: 'comfyui_server_url' }),
+      getSetting({ data: 'comfyui_default_workflow_id' }),
       listComfyUIWorkflows(),
     ])
     return {
@@ -72,6 +73,7 @@ export const Route = createFileRoute('/settings/')({
       delay: delay ?? '500',
       backend: (backend ?? 'nai') as BackendType,
       comfyuiUrl: comfyuiUrl ?? 'http://localhost:8188',
+      defaultWorkflowId: defaultWorkflowId ?? null,
       workflows: workflows ?? [],
     }
   },

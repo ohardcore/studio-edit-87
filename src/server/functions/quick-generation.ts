@@ -5,6 +5,7 @@ import {
   generatedImages,
   generationBatches,
   generationJobs,
+  settings,
 } from '../db/schema'
 import {
   enqueueBatch,
@@ -68,7 +69,10 @@ export const createQuickGenerationJob = createServerFn({ method: 'POST' })
         batchId: batch.id,
         queueOrder: 0,
         resolvedPrompts: JSON.stringify(resolvedPrompts),
-        resolvedParameters: JSON.stringify(data.parameters),
+        resolvedParameters: JSON.stringify({
+          ...data.parameters,
+          _backend: db.select().from(settings).where(eq(settings.key, 'generation_backend')).get()?.value ?? 'nai',
+        }),
         totalCount: data.count,
         completedCount: 0,
         status: 'pending',

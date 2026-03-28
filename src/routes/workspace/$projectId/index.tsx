@@ -512,19 +512,38 @@ function WorkspacePage() {
       return
     }
 
-    const apiKey = await getSetting({ data: 'nai_api_key' })
-    if (!apiKey) {
-      toast.error(t('generation.apiKeyNotSet'), {
-        action: {
-          label: t('nav.settings'),
-          onClick: () =>
-            router.navigate({
-              to: '/settings',
-              search: { imageDetail: undefined },
-            }),
-        },
-      })
-      return
+    // Check backend-specific prerequisites
+    const backend = await getSetting({ data: 'generation_backend' })
+    if (backend === 'comfyui') {
+      const serverUrl = await getSetting({ data: 'comfyui_server_url' })
+      if (!serverUrl) {
+        toast.error('ComfyUI 서버 URL이 설정되지 않았습니다', {
+          action: {
+            label: t('nav.settings'),
+            onClick: () =>
+              router.navigate({
+                to: '/settings',
+                search: { imageDetail: undefined },
+              }),
+          },
+        })
+        return
+      }
+    } else {
+      const apiKey = await getSetting({ data: 'nai_api_key' })
+      if (!apiKey) {
+        toast.error(t('generation.apiKeyNotSet'), {
+          action: {
+            label: t('nav.settings'),
+            onClick: () =>
+              router.navigate({
+                to: '/settings',
+                search: { imageDetail: undefined },
+              }),
+          },
+        })
+        return
+      }
     }
 
     if (saveTimeoutRef.current) {

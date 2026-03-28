@@ -34,7 +34,7 @@ async function queuePrompt(
   workflow: unknown,
   clientId: string,
 ): Promise<string> {
-  const response = await fetch(`${serverUrl}/api/prompt`, {
+  const response = await fetch(`${serverUrl}/prompt`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -171,7 +171,7 @@ async function pollForCompletion(
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
-    const response = await fetch(`${serverUrl}/api/history/${promptId}`)
+    const response = await fetch(`${serverUrl}/history/${promptId}`)
     if (response.ok) {
       const history = (await response.json()) as Record<
         string,
@@ -199,7 +199,7 @@ async function fetchOutputImage(
   type: string,
 ): Promise<Uint8Array> {
   const params = new URLSearchParams({ filename, subfolder, type })
-  const response = await fetch(`${serverUrl}/api/view?${params}`)
+  const response = await fetch(`${serverUrl}/view?${params}`)
 
   if (!response.ok) {
     throw new Error(`Failed to fetch ComfyUI output image: ${response.status}`)
@@ -212,7 +212,7 @@ async function fetchOutputImage(
 
 export async function testConnection(serverUrl: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const response = await fetch(`${serverUrl}/api/system_stats`, {
+    const response = await fetch(`${serverUrl}/system_stats`, {
       signal: AbortSignal.timeout(5000),
     })
     if (response.ok) return { valid: true }
@@ -223,7 +223,7 @@ export async function testConnection(serverUrl: string): Promise<{ valid: boolea
 }
 
 export async function getObjectInfo(serverUrl: string): Promise<Record<string, unknown>> {
-  const response = await fetch(`${serverUrl}/api/object_info`, {
+  const response = await fetch(`${serverUrl}/object_info`, {
     signal: AbortSignal.timeout(10000),
   })
   if (!response.ok) throw new Error(`Failed to get object info: ${response.status}`)
