@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `char_negative` text DEFAULT '' NOT NULL;
