@@ -7,6 +7,7 @@ import {
   getAvailableModels,
   getAvailableSamplers,
   getAvailableSchedulers,
+  uploadImage,
 } from '../services/comfyui'
 import {
   autoDetectMapping,
@@ -57,6 +58,30 @@ export const fetchComfyUISchedulers = createServerFn({ method: 'POST' })
     } catch (err) {
       return { schedulers: [], error: err instanceof Error ? err.message : 'Failed to fetch schedulers' }
     }
+  })
+
+// ─── Image upload ───────────────────────────────────────────────────────────
+
+export const uploadComfyUIImage = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: { serverUrl: string; imageBase64: string; filename: string; subfolder?: string }) => data,
+  )
+  .handler(async ({ data }) => {
+    try {
+      const imageBuffer = Uint8Array.from(atob(data.imageBase64), (c) => c.charCodeAt(0))
+      const result = await uploadImage(data.serverUrl, imageBuffer, data.filename, data.subfolder)
+      return { success: true, ...result }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Upload failed' }
+    }
+  })
+
+// ─── Connection status ──────────────────────────────────────────────────────
+
+export const checkComfyUIStatus = createServerFn({ method: 'POST' })
+  .inputValidator((serverUrl: string) => serverUrl)
+  .handler(async ({ data: serverUrl }) => {
+    return testConnection(serverUrl)
   })
 
 // ─── Workflow CRUD ──────────────────────────────────────────────────────────

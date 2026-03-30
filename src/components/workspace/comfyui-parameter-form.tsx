@@ -23,6 +23,7 @@ import {
   fetchComfyUIModels,
   fetchComfyUISamplers,
   fetchComfyUISchedulers,
+  checkComfyUIStatus,
 } from '@/server/functions/comfyui'
 import { DEFAULT_FILENAME_TEMPLATE } from '@/server/services/download'
 
@@ -93,6 +94,16 @@ export function ComfyUIParameterForm({
 
   const activePreset = RESOLUTION_PRESETS.find((p) => p.w === w && p.h === h)
 
+  // Connection status polling
+  const { data: connectionStatus } = useQuery({
+    queryKey: ['comfyui-status', serverUrl],
+    queryFn: () => checkComfyUIStatus({ data: serverUrl! }),
+    enabled: !!serverUrl,
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  })
+  const isConnected = connectionStatus?.valid === true
+
   // Fetch dynamic options from ComfyUI server
   const { data: workflows } = useQuery({
     queryKey: ['comfyui-workflows'],
@@ -139,6 +150,17 @@ export function ComfyUIParameterForm({
 
   return (
     <div className="space-y-4">
+      {/* Connection Status */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className={`inline-block size-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+        <span className={isConnected ? 'text-green-600' : 'text-destructive'}>
+          {isConnected ? 'ComfyUI Connected' : 'ComfyUI Disconnected'}
+        </span>
+        {serverUrl && (
+          <span className="text-muted-foreground truncate">{serverUrl}</span>
+        )}
+      </div>
+
       {/* Workflow */}
       <section className="space-y-1.5">
         <ParamLabel

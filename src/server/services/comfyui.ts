@@ -98,7 +98,7 @@ async function waitForWsSignal(
         try {
           const msg = JSON.parse(String(event.data)) as {
             type: string
-            data: { prompt_id?: string; node?: string; output?: unknown }
+            data: { prompt_id?: string; node?: string | null; output?: unknown }
           }
           if (msg.data?.prompt_id !== promptId) return
 
@@ -108,19 +108,36 @@ async function waitForWsSignal(
             return
           }
 
-          // 'executed' with images → workflow produced output, done
+          // 'execution_cached' → cached nodes, do NOT treat as completion
+          if (msg.type === 'execution_cached') {
+            return
+          }
+
+          // 'executing' with node=null → all nodes finished (most common completion signal)
+          if (msg.type === 'executing' && msg.data.node === null) {
+            finish(true)
+            return
+          }
+
+          // 'execution_success' → newer ComfyUI completion signal
+          if (msg.type === 'execution_success') {
+            finish(true)
+            return
+          }
+
+          // 'execution_complete' → alternative completion signal
+          if (msg.type === 'execution_complete') {
+            finish(true)
+            return
+          }
+
+          // 'executed' with images → node produced output (fallback detection)
           if (msg.type === 'executed') {
             const output = msg.data.output as { images?: unknown[] } | undefined
             if (output?.images && output.images.length > 0) {
               finish(true)
               return
             }
-            // 'executed' without images → another node, keep waiting
-          }
-
-          // 'execution_complete' → all nodes done (newer ComfyUI)
-          if (msg.type === 'execution_complete') {
-            finish(true)
           }
         } catch {
           // Ignore binary progress messages
@@ -235,6 +252,36 @@ export async function getAvailableSchedulers(serverUrl: string): Promise<string[
     input?: { required?: { scheduler?: [string[]] } }
   } | undefined
   return ksampler?.input?.required?.scheduler?.[0] ?? []
+}
+
+// ─── Reference image upload ─────────────────────────────────────────────────
+
+export async function uploadImage(
+  serverUrl: string,
+  imageBuffer: Uint8Array,
+  filename: string,
+  subfolder = '',
+  overwrite = true,
+): Promise<{ name: string; subfolder: string; type: string }> {
+  const formData = new FormData()
+  const blob = new Blob([imageBuffer.buffer as ArrayBuffer], { type: 'image/png' })
+  formData.append('image', blob, filename)
+  if (subfolder) formData.append('subfolder', subfolder)
+  formData.append('overwrite', overwrite ? 'true' : 'false')
+
+  const response = await fetch(`${serverUrl}/upload/image`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`ComfyUI image upload failed (${response.status}): ${text.slice(0, 200)}`)
+  }
+
+  const result = (await response.json()) as { name: string; subfolder: string; type: string }
+  log.info('api.upload', 'Image uploaded to ComfyUI', { filename: result.name, subfolder: result.subfolder })
+  return result
 }
 
 // ─── ComfyUI Backend implementation ────────────────────────────────────────
