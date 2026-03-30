@@ -10,6 +10,7 @@ export interface ParameterMapping {
   checkpoint?: string
   positiveClip?: string
   negativeClip?: string
+  randomNoise?: string  // SamplerCustomAdvanced workflows (Flux-style)
 }
 
 interface WorkflowNode {
@@ -27,6 +28,7 @@ export function autoDetectMapping(workflow: unknown): ParameterMapping {
   const mapping: ParameterMapping = {}
 
   const ksamplers: string[] = []
+  const customSamplers: string[] = []
   const latents: string[] = []
   const checkpoints: string[] = []
   const clipEncoders: string[] = []
@@ -38,6 +40,9 @@ export function autoDetectMapping(workflow: unknown): ParameterMapping {
       case 'KSampler':
       case 'KSamplerAdvanced':
         ksamplers.push(nodeId)
+        break
+      case 'SamplerCustomAdvanced':
+        customSamplers.push(nodeId)
         break
       case 'EmptyLatentImage':
         latents.push(nodeId)
@@ -56,27 +61,62 @@ export function autoDetectMapping(workflow: unknown): ParameterMapping {
   if (latents.length === 1) mapping.latentImage = latents[0]
   if (checkpoints.length === 1) mapping.checkpoint = checkpoints[0]
 
-  // Try to identify positive/negative CLIP encoders by tracing KSampler connections
-  if (mapping.ksampler && clipEncoders.length >= 2) {
-    const ksNode = wf[mapping.ksampler]
-    if (ksNode) {
-      // KSampler has 'positive' and 'negative' inputs that reference CLIP encoder nodes
-      const posRef = ksNode.inputs.positive
-      const negRef = ksNode.inputs.negative
-      if (Array.isArray(posRef) && clipEncoders.includes(String(posRef[0]))) {
-        mapping.positiveClip = String(posRef[0])
-      }
-      if (Array.isArray(negRef) && clipEncoders.includes(String(negRef[0]))) {
-        mapping.negativeClip = String(negRef[0])
-      }
+  // 1. Prefer SamplerCustomAdvanced (Flux/AuraFlow-style) as primary generation
+  //    Trace: SamplerCustomAdvanced → guider (CFGGuidance/BasicGuider) → positive/negative
+  for (const samplerId of customSamplers) {
+    const samplerNode = wf[samplerId]
+
+    // Detect RandomNoise for seed injection
+    const noiseRef = samplerNode.inputs.noise
+    if (Array.isArray(noiseRef) && wf[String(noiseRef[0])]?.class_type === 'RandomNoise') {
+      mapping.randomNoise = String(noiseRef[0])
     }
-  } else if (clipEncoders.length === 2) {
-    // Heuristic: first is positive, second is negative (by node ID order)
-    const sorted = clipEncoders.sort((a, b) => Number(a) - Number(b))
-    mapping.positiveClip = sorted[0]
-    mapping.negativeClip = sorted[1]
-  } else if (clipEncoders.length === 1) {
-    mapping.positiveClip = clipEncoders[0]
+
+    // Trace through guider to find conditioning nodes
+    const guiderRef = samplerNode.inputs.guider
+    if (!Array.isArray(guiderRef)) continue
+    const guiderNode = wf[String(guiderRef[0])]
+    if (!guiderNode) continue
+
+    const posRef = guiderNode.inputs.positive
+    const negRef = guiderNode.inputs.negative
+    if (Array.isArray(posRef) && clipEncoders.includes(String(posRef[0]))) {
+      mapping.positiveClip = String(posRef[0])
+    }
+    if (Array.isArray(negRef) && clipEncoders.includes(String(negRef[0]))) {
+      mapping.negativeClip = String(negRef[0])
+    }
+    if (mapping.positiveClip) break
+  }
+
+  // 2. Fall back to KSampler-based detection if no SamplerCustomAdvanced found
+  if (!mapping.positiveClip) {
+    // Prefer KSampler with high denoise (primary generation, not refiner)
+    const primaryKSampler = ksamplers.find((id) => {
+      const denoise = wf[id]?.inputs?.denoise
+      return typeof denoise === 'number' ? denoise >= 0.5 : true
+    }) ?? (ksamplers.length === 1 ? ksamplers[0] : undefined)
+
+    if (primaryKSampler) {
+      if (!mapping.ksampler) mapping.ksampler = primaryKSampler
+      const ksNode = wf[primaryKSampler]
+      if (ksNode) {
+        const posRef = ksNode.inputs.positive
+        const negRef = ksNode.inputs.negative
+        if (Array.isArray(posRef) && clipEncoders.includes(String(posRef[0]))) {
+          mapping.positiveClip = String(posRef[0])
+        }
+        if (Array.isArray(negRef) && clipEncoders.includes(String(negRef[0]))) {
+          mapping.negativeClip = String(negRef[0])
+        }
+      }
+    } else if (clipEncoders.length === 2) {
+      const sorted = clipEncoders.sort((a, b) => Number(a) - Number(b))
+      mapping.positiveClip = sorted[0]
+      mapping.negativeClip = sorted[1]
+    } else if (clipEncoders.length === 1) {
+      mapping.positiveClip = clipEncoders[0]
+    }
   }
 
   log.info('autoDetect', 'Auto-detected parameter mapping', {
@@ -142,6 +182,12 @@ export function injectParameters(
   if (mapping.negativeClip && wf[mapping.negativeClip]) {
     const node = wf[mapping.negativeClip]
     if (params.negativePrompt !== undefined) node.inputs.text = params.negativePrompt
+  }
+
+  // Inject seed into RandomNoise node (for SamplerCustomAdvanced / Flux-style workflows)
+  if (mapping.randomNoise && wf[mapping.randomNoise]) {
+    const node = wf[mapping.randomNoise]
+    if (params.seed !== undefined) node.inputs.noise_seed = params.seed
   }
 
   return wf

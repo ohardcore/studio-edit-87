@@ -398,7 +398,7 @@ function WorkspacePage() {
   }, [router, loadCharacterOverrides])
 
   // ── Generation state ──
-  const [countPerScene, setCountPerScene] = useState(0)
+  const [countPerScene, setCountPerScene] = useState(1)
   const [sceneCounts, setSceneCounts] = useState<Record<number, number>>({})
   const [generating, setGenerating] = useState(data.activeJobs.length > 0)
   const [queueStopped, setQueueStopped] = useState<'error' | 'paused' | null>(

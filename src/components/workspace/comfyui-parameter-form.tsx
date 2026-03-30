@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Slider } from '@/components/ui/slider'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -11,65 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
-import { getSetting } from '@/server/functions/settings'
-import {
-  listComfyUIWorkflows,
-  fetchComfyUIModels,
-  fetchComfyUISamplers,
-  fetchComfyUISchedulers,
-  checkComfyUIStatus,
-} from '@/server/functions/comfyui'
+import { listComfyUIWorkflows } from '@/server/functions/comfyui'
 import { DEFAULT_FILENAME_TEMPLATE } from '@/server/services/download'
-
-// --- Resolution presets (shared with NAI) ---
-const RESOLUTION_PRESETS = [
-  { key: 'portrait' as const, w: 832, h: 1216 },
-  { key: 'landscape' as const, w: 1216, h: 832 },
-  { key: 'square' as const, w: 1024, h: 1024 },
-  { key: 'wide' as const, w: 1472, h: 832 },
-  { key: 'tall' as const, w: 832, h: 1472 },
-] as const
-
-function ParamLabel({
-  label,
-  help,
-  value,
-}: {
-  label: string
-  help?: string
-  value?: string | number
-}) {
-  const labelEl = (
-    <div className="flex items-center justify-between">
-      {help ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Label className="text-sm cursor-help border-b border-dashed border-muted-foreground/40">
-              {label}
-            </Label>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-52">
-            <p className="text-sm">{help}</p>
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <Label className="text-sm">{label}</Label>
-      )}
-      {value !== undefined && (
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {value}
-        </span>
-      )}
-    </div>
-  )
-  return labelEl
-}
 
 export function ComfyUIParameterForm({
   localParams,
@@ -79,32 +22,8 @@ export function ComfyUIParameterForm({
   set: (key: string, value: unknown) => void
 }) {
   const { t } = useTranslation()
-  const w = Number(localParams.width ?? 832)
-  const h = Number(localParams.height ?? 1216)
-  const steps = Number(localParams.steps ?? 28)
-  const scale = Number(localParams.scale ?? 7)
 
-  const [serverUrl, setServerUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    getSetting({ data: 'comfyui_server_url' }).then((url) =>
-      setServerUrl(url ?? 'http://localhost:8188'),
-    )
-  }, [])
-
-  const activePreset = RESOLUTION_PRESETS.find((p) => p.w === w && p.h === h)
-
-  // Connection status polling
-  const { data: connectionStatus } = useQuery({
-    queryKey: ['comfyui-status', serverUrl],
-    queryFn: () => checkComfyUIStatus({ data: serverUrl! }),
-    enabled: !!serverUrl,
-    refetchInterval: 10_000,
-    staleTime: 5_000,
-  })
-  const isConnected = connectionStatus?.valid === true
-
-  // Fetch dynamic options from ComfyUI server
+  // Fetch workflows only
   const { data: workflows } = useQuery({
     queryKey: ['comfyui-workflows'],
     queryFn: () => listComfyUIWorkflows(),
@@ -123,50 +42,11 @@ export function ComfyUIParameterForm({
     }
   }, [workflows, localParams.workflowId, set])
 
-  const { data: modelsResult } = useQuery({
-    queryKey: ['comfyui-models', serverUrl],
-    queryFn: () => fetchComfyUIModels({ data: serverUrl! }),
-    enabled: !!serverUrl,
-    staleTime: 60_000,
-  })
-
-  const { data: samplersResult } = useQuery({
-    queryKey: ['comfyui-samplers', serverUrl],
-    queryFn: () => fetchComfyUISamplers({ data: serverUrl! }),
-    enabled: !!serverUrl,
-    staleTime: 60_000,
-  })
-
-  const { data: schedulersResult } = useQuery({
-    queryKey: ['comfyui-schedulers', serverUrl],
-    queryFn: () => fetchComfyUISchedulers({ data: serverUrl! }),
-    enabled: !!serverUrl,
-    staleTime: 60_000,
-  })
-
-  const models = modelsResult?.models ?? []
-  const samplers = samplersResult?.samplers ?? []
-  const schedulers = schedulersResult?.schedulers ?? []
-
   return (
     <div className="space-y-4">
-      {/* Connection Status */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className={`inline-block size-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-        <span className={isConnected ? 'text-green-600' : 'text-destructive'}>
-          {isConnected ? 'ComfyUI Connected' : 'ComfyUI Disconnected'}
-        </span>
-        {serverUrl && (
-          <span className="text-muted-foreground truncate">{serverUrl}</span>
-        )}
-      </div>
-
       {/* Workflow */}
       <section className="space-y-1.5">
-        <ParamLabel
-          label={t('comfyuiParams.workflow')}
-          help={t('comfyuiParams.workflowHelp')}
-        />
+        <Label className="text-sm">{t('comfyuiParams.workflow')}</Label>
         {workflows && workflows.length > 0 ? (
           <Select
             value={String(localParams.workflowId ?? '')}
@@ -190,160 +70,6 @@ export function ComfyUIParameterForm({
         )}
       </section>
 
-      {/* Model (Checkpoint) */}
-      <section className="space-y-1.5">
-        <ParamLabel
-          label={t('comfyuiParams.model')}
-          help={t('comfyuiParams.modelHelp')}
-        />
-        {models.length > 0 ? (
-          <Select
-            value={String(localParams.comfyuiModel ?? '')}
-            onValueChange={(v) => set('comfyuiModel', v)}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue placeholder={t('comfyuiParams.model')} />
-            </SelectTrigger>
-            <SelectContent>
-              {models.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {serverUrl ? t('comfyuiParams.loadingModels') : t('comfyuiParams.noModels')}
-          </p>
-        )}
-      </section>
-
-      {/* Resolution */}
-      <section className="space-y-1.5">
-        <ParamLabel
-          label={t('params.resolution')}
-          value={`${w} × ${h}`}
-        />
-        <div className="flex flex-wrap gap-1">
-          {RESOLUTION_PRESETS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
-                activePreset?.key === p.key
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:border-primary/50'
-              }`}
-              onClick={() => {
-                set('width', p.w)
-                set('height', p.h)
-              }}
-            >
-              {t(`params.${p.key}` as any)} {p.w}×{p.h}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">W</Label>
-            <Input
-              type="number"
-              min={64}
-              max={2048}
-              step={64}
-              value={w}
-              onChange={(e) => set('width', Number(e.target.value))}
-              className="h-7 text-sm tabular-nums"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">H</Label>
-            <Input
-              type="number"
-              min={64}
-              max={2048}
-              step={64}
-              value={h}
-              onChange={(e) => set('height', Number(e.target.value))}
-              className="h-7 text-sm tabular-nums"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Steps */}
-      <section className="space-y-1.5">
-        <ParamLabel label={t('params.steps')} value={steps} />
-        <Slider
-          value={[steps]}
-          onValueChange={([v]) => set('steps', v)}
-          min={1}
-          max={100}
-          step={1}
-        />
-      </section>
-
-      {/* CFG Scale */}
-      <section className="space-y-1.5">
-        <ParamLabel label={t('params.scale')} value={scale.toFixed(1)} />
-        <Slider
-          value={[scale]}
-          onValueChange={([v]) => set('scale', v)}
-          min={1}
-          max={30}
-          step={0.5}
-        />
-      </section>
-
-      {/* Sampler */}
-      <section className="space-y-1.5">
-        <ParamLabel label={t('params.sampler')} />
-        {samplers.length > 0 ? (
-          <Select
-            value={String(localParams.sampler ?? '')}
-            onValueChange={(v) => set('sampler', v)}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue placeholder={t('params.sampler')} />
-            </SelectTrigger>
-            <SelectContent>
-              {samplers.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <p className="text-xs text-muted-foreground">{t('comfyuiParams.noModels')}</p>
-        )}
-      </section>
-
-      {/* Scheduler */}
-      <section className="space-y-1.5">
-        <ParamLabel label={t('params.scheduler')} />
-        {schedulers.length > 0 ? (
-          <Select
-            value={String(localParams.scheduler ?? '')}
-            onValueChange={(v) => set('scheduler', v)}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue placeholder={t('params.scheduler')} />
-            </SelectTrigger>
-            <SelectContent>
-              {schedulers.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <p className="text-xs text-muted-foreground">{t('comfyuiParams.noModels')}</p>
-        )}
-      </section>
-
       {/* Seed */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
@@ -358,7 +84,7 @@ export function ComfyUIParameterForm({
               }
             }}
           />
-          <ParamLabel label={t('params.seedFixed')} />
+          <Label className="text-sm">{t('params.seedFixed')}</Label>
         </div>
         {localParams.seed != null ? (
           <Input

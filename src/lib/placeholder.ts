@@ -1,4 +1,5 @@
-const PLACEHOLDER_RE = /\\\\(\w+)\\\\/g
+// Matches \\\\key\\\\ or \\\\key:default value\\\\
+const PLACEHOLDER_RE = /\\\\(\w+)(?::([^\\]*))?\\\\/g
 
 export function extractPlaceholders(template: string): Array<string> {
   const keys = new Set<string>()
@@ -12,5 +13,5 @@ export function resolvePlaceholders(
   template: string,
   values: Record<string, string>,
 ): string {
-  return template.replace(PLACEHOLDER_RE, (_, key) => values[key] ?? '')
+  return template.replace(PLACEHOLDER_RE, (_, key, defaultVal) => values[key] ?? defaultVal ?? "")
 }

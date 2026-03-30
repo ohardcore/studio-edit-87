@@ -147,7 +147,7 @@ function expandScene(
     // Clean artifacts: double commas, leading/trailing commas/whitespace
     combined = cleanPrompt(combined)
 
-    const placeholders: Record<string, string> = { _template: combined }
+    const placeholders: Record<string, string> = { _template: combined, _shot: 'full body' }
 
     const name = needsIndex ? `${baseName}.${i + 1}` : baseName
     results.push({ name, placeholders, sortOrder: 0 })
