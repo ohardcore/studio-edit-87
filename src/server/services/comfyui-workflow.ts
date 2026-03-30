@@ -157,6 +157,16 @@ export function validateWorkflow(workflow: unknown): { valid: boolean; errors: s
     return { valid: false, errors }
   }
 
+  // Detect UI format (has "nodes" array) vs API format (flat node dictionary)
+  const wfObj = workflow as Record<string, unknown>
+  if (Array.isArray(wfObj.nodes)) {
+    errors.push(
+      'This is a ComfyUI UI format workflow. Please export as API format instead: ' +
+      'In ComfyUI, enable "Dev mode options" in Settings, then use "Save (API Format)" from the menu.',
+    )
+    return { valid: false, errors }
+  }
+
   const wf = workflow as WorkflowJson
   const entries = Object.entries(wf)
 

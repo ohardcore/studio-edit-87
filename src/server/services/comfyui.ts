@@ -58,138 +58,116 @@ async function waitForCompletion(
   clientId: string,
   timeoutMs = 300_000,
 ): Promise<{ images: Array<{ filename: string; subfolder: string; type: string }> }> {
-  return new Promise((resolve, reject) => {
+  // Strategy: Use WebSocket to detect completion, then always fetch results from history API.
+  // This is more reliable than parsing individual 'executed' messages per node,
+  // because 'executed' fires per-node and we might catch a non-SaveImage node first.
+
+  const wsCompleted = await waitForWsSignal(serverUrl, promptId, clientId, timeoutMs)
+
+  if (!wsCompleted) {
+    log.warn('ws.timeout', 'WebSocket did not signal completion, trying history')
+  }
+
+  // Always fetch final results from history API (most reliable)
+  return fetchFromHistory(serverUrl, promptId, 30_000)
+}
+
+async function waitForWsSignal(
+  serverUrl: string,
+  promptId: string,
+  clientId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise((resolve) => {
     const wsUrl = serverUrl.replace(/^http/, 'ws')
-    let ws: WebSocket | null = null
-    let resolved = false
+    let done = false
 
     const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        ws?.close()
-        reject(new Error(`ComfyUI generation timed out after ${timeoutMs / 1000}s`))
-      }
+      if (!done) { done = true; ws?.close(); resolve(false) }
     }, timeoutMs)
 
-    const cleanup = () => {
-      clearTimeout(timeout)
-      ws?.close()
+    const finish = (success: boolean) => {
+      if (!done) { done = true; clearTimeout(timeout); ws?.close(); resolve(success) }
     }
 
+    let ws: WebSocket | null = null
     try {
       ws = new WebSocket(`${wsUrl}/ws?clientId=${clientId}`)
 
       ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(String(event.data)) as {
+          const msg = JSON.parse(String(event.data)) as {
             type: string
-            data: {
-              prompt_id?: string
-              output?: { images?: Array<{ filename: string; subfolder: string; type: string }> }
-            }
+            data: { prompt_id?: string; node?: string; output?: unknown }
+          }
+          if (msg.data?.prompt_id !== promptId) return
+
+          // 'execution_error' → reject immediately
+          if (msg.type === 'execution_error') {
+            finish(false)
+            return
           }
 
-          if (message.type === 'executed' && message.data.prompt_id === promptId) {
-            if (!resolved) {
-              resolved = true
-              cleanup()
-              const images = message.data.output?.images ?? []
-              resolve({ images })
+          // 'executed' with images → workflow produced output, done
+          if (msg.type === 'executed') {
+            const output = msg.data.output as { images?: unknown[] } | undefined
+            if (output?.images && output.images.length > 0) {
+              finish(true)
+              return
             }
+            // 'executed' without images → another node, keep waiting
           }
 
-          if (message.type === 'execution_error' && message.data.prompt_id === promptId) {
-            if (!resolved) {
-              resolved = true
-              cleanup()
-              reject(new Error('ComfyUI execution error'))
-            }
+          // 'execution_complete' → all nodes done (newer ComfyUI)
+          if (msg.type === 'execution_complete') {
+            finish(true)
           }
         } catch {
-          // Ignore non-JSON messages (binary progress data)
+          // Ignore binary progress messages
         }
       }
 
-      ws.onerror = () => {
-        if (!resolved) {
-          // Fallback to polling if WebSocket fails
-          log.warn('ws.fallback', 'WebSocket failed, falling back to polling')
-          ws?.close()
-          pollForCompletion(serverUrl, promptId, timeoutMs)
-            .then((result) => {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                resolve(result)
-              }
-            })
-            .catch((err) => {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                reject(err)
-              }
-            })
-        }
-      }
-
+      ws.onerror = () => finish(false)
       ws.onclose = () => {
-        if (!resolved) {
-          // Connection closed unexpectedly, try polling
-          pollForCompletion(serverUrl, promptId, timeoutMs)
-            .then((result) => {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                resolve(result)
-              }
-            })
-            .catch((err) => {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                reject(err)
-              }
-            })
-        }
+        // If not done yet, WS closed early — let history API handle it
+        if (!done) { done = true; clearTimeout(timeout); resolve(false) }
       }
     } catch {
-      // WebSocket not available, use polling
       clearTimeout(timeout)
-      pollForCompletion(serverUrl, promptId, timeoutMs)
-        .then(resolve)
-        .catch(reject)
+      resolve(false)
     }
   })
 }
 
-async function pollForCompletion(
+async function fetchFromHistory(
   serverUrl: string,
   promptId: string,
   timeoutMs: number,
 ): Promise<{ images: Array<{ filename: string; subfolder: string; type: string }> }> {
   const start = Date.now()
-
   while (Date.now() - start < timeoutMs) {
-    const response = await fetch(`${serverUrl}/history/${promptId}`)
-    if (response.ok) {
-      const history = (await response.json()) as Record<
-        string,
-        { outputs?: Record<string, { images?: Array<{ filename: string; subfolder: string; type: string }> }> }
-      >
-      const entry = history[promptId]
-      if (entry?.outputs) {
-        const images: Array<{ filename: string; subfolder: string; type: string }> = []
-        for (const output of Object.values(entry.outputs)) {
-          if (output.images) images.push(...output.images)
+    try {
+      const response = await fetch(`${serverUrl}/history/${promptId}`)
+      if (response.ok) {
+        const history = (await response.json()) as Record<
+          string,
+          { outputs?: Record<string, { images?: Array<{ filename: string; subfolder: string; type: string }> }> }
+        >
+        const entry = history[promptId]
+        if (entry?.outputs) {
+          const images: Array<{ filename: string; subfolder: string; type: string }> = []
+          for (const output of Object.values(entry.outputs)) {
+            if (output.images) images.push(...output.images)
+          }
+          if (images.length > 0) return { images }
         }
-        return { images }
       }
+    } catch {
+      // Network error, retry
     }
     await new Promise((r) => setTimeout(r, 1000))
   }
-
-  throw new Error(`ComfyUI polling timed out after ${timeoutMs / 1000}s`)
+  throw new Error(`ComfyUI: no images found in history after ${timeoutMs / 1000}s`)
 }
 
 async function fetchOutputImage(
@@ -198,11 +176,16 @@ async function fetchOutputImage(
   subfolder: string,
   type: string,
 ): Promise<Uint8Array> {
-  const params = new URLSearchParams({ filename, subfolder, type })
+  const params = new URLSearchParams({ filename, type: type || 'output' })
+  if (subfolder) params.set('subfolder', subfolder)
+
+  log.info('api.fetchImage', 'Fetching output image', { filename, subfolder, type })
+
   const response = await fetch(`${serverUrl}/view?${params}`)
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch ComfyUI output image: ${response.status}`)
+    const text = await response.text().catch(() => '')
+    throw new Error(`Failed to fetch ComfyUI output image: ${response.status} ${text.slice(0, 200)}`)
   }
 
   return new Uint8Array(await response.arrayBuffer())
